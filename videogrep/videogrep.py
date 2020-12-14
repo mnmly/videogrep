@@ -8,7 +8,7 @@ import subprocess
 from glob import glob
 from collections import OrderedDict
 
-from moviepy.editor import VideoFileClip, concatenate
+from moviepy.editor import VideoFileClip, vfx, concatenate_videoclips
 import audiogrep
 
 from .vtt import parse_auto_sub
@@ -206,14 +206,12 @@ def create_supercut(composition, outputfile, padding):
     all_filenames = set([c['file'] for c in composition])
     videofileclips = dict([(f, VideoFileClip(f)) for f in all_filenames])
     cut_clips = [videofileclips[c['file']].subclip(c['start'], c['end']) for c in composition]
-
+    # clips = [VideoFileClip(filename).fx(vfx.resize, width=1280).set_fps(30) for filename in batch_comp]
     print("[+] Concatenating clips.")
-    final_clip = concatenate(cut_clips)
+    final_clip = concatenate_videoclips(cut_clips, method='compose')
 
     print("[+] Writing ouput file.")
     final_clip.to_videofile(outputfile, codec="libx264", temp_audiofile='temp-audio.m4a', remove_temp=True, audio_codec='aac')
-
-
 
 def create_supercut_in_batches(composition, outputfile, padding):
     """Create & concatenate video clips in groups of size BATCH_SIZE and output
@@ -237,7 +235,7 @@ def create_supercut_in_batches(composition, outputfile, padding):
             next
 
     clips = [VideoFileClip(filename) for filename in batch_comp]
-    video = concatenate(clips)
+    video = concatenate_videoclips(clips, method='compose')
     video.to_videofile(outputfile, codec="libx264", temp_audiofile='temp-audio.m4a', remove_temp=True, audio_codec='aac')
 
 
@@ -371,7 +369,7 @@ def compose_from_srts(srts, search, searchtype):
     return composition
 
 
-def compose_from_transcript(files, search, searchtype):
+def compose_from_transcript(files, search, searchtype, use_confidence):
     """Takes transcripts created by audiogrep/pocketsphinx, a search and search type
     and returns a list of timestamps for creating a supercut"""
 
@@ -381,7 +379,7 @@ def compose_from_transcript(files, search, searchtype):
         if searchtype == 're':
             searchtype = 'sentence'
 
-        segments = audiogrep.search(search, files, mode=searchtype, regex=True)
+        segments = audiogrep.search(search, files, mode=searchtype, regex=True, use_confidence=use_confidence)
         for seg in segments:
             seg['file'] = seg['file'].replace('.transcription.txt', '')
             seg['line'] = seg['words']
@@ -435,7 +433,7 @@ def compose_from_vtt(files, search, searchtype):
     return final_segments
 
 
-def videogrep(inputfile, outputfile, search, searchtype, maxclips=0, padding=0, test=False, randomize=False, sync=0, use_transcript=False, use_vtt=False, export_clips=False):
+def videogrep(inputfile, outputfile, search, searchtype, maxclips=0, padding=0, test=False, randomize=False, sync=0, use_transcript=False, use_vtt=False, export_clips=False, use_confidence=False):
     """Search through and find all instances of the search term in an srt or transcript,
     create a supercut around that instance, and output a new video file
     comprised of those supercuts.
@@ -447,7 +445,7 @@ def videogrep(inputfile, outputfile, search, searchtype, maxclips=0, padding=0, 
     foundSearchTerm = False
 
     if use_transcript:
-        composition = compose_from_transcript(inputfile, search, searchtype)
+        composition = compose_from_transcript(inputfile, search, searchtype, use_confidence)
     elif use_vtt:
         vtts = get_vtt_files(inputfile)
         composition = compose_from_vtt(vtts, search, searchtype)
@@ -507,10 +505,12 @@ def main():
     parser.add_argument('--youtube', '-yt', help='grab clips from youtube based on your search')
     parser.add_argument('--padding', '-p', dest='padding', default=0, type=int, help='padding in milliseconds to add to the start and end of each clip')
     parser.add_argument('--resyncsubs', '-rs', dest='sync', default=0, type=int, help='Subtitle re-synch delay +/- in milliseconds')
+    parser.add_argument('--use-confidence', '-uc', dest='use_confidence', default=False, type=int, help='Whether it will use confidence value for the clip selection for franken')
     parser.add_argument('--transcribe', '-tr', dest='transcribe', action='store_true', help='Transcribe the video using audiogrep. Requires pocketsphinx')
     parser.add_argument('--ngrams', '-n', dest='ngrams', type=int, default=0,  help='Return ngrams for videos')
 
     args = parser.parse_args()
+    print(args.use_confidence)
 
     if not args.transcribe and args.ngrams == 0:
         if args.search is None:
@@ -525,7 +525,7 @@ def main():
         for ngram, count in most_common:
             print(' '.join(ngram), count)
     else:
-        videogrep(args.inputfile, args.outputfile, args.search, args.searchtype, args.maxclips, args.padding, args.demo, args.randomize, args.sync, args.use_transcript, args.use_vtt, args.export_clips)
+        videogrep(args.inputfile, args.outputfile, args.search, args.searchtype, args.maxclips, args.padding, args.demo, args.randomize, args.sync, args.use_transcript, args.use_vtt, args.export_clips, args.use_confidence)
 
 
 if __name__ == '__main__':
